@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+# Virtual environment
+venv/
+env/
+ENV/
+
+# VS Code settings
+.vscode/
+
+# Data files
+uploads/
