@@ -2,7 +2,8 @@
 
 A comprehensive web application for analyzing football (soccer) match data using StatsBomb-format JSON files, providing detailed visualizations, statistics, and player performance metrics.
 
-![Football Analysis Dashboard](https://github.com/username/football_analysis/raw/main/screenshots/dashboard.png)
+![Football Analysis Dashboard](![image](https://github.com/user-attachments/assets/416642e3-befb-4a8a-900a-582d59123f7f)
+)
 
 ## Features
 
