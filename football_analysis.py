@@ -10,51 +10,152 @@ import base64
 from io import BytesIO
 from typing import Dict, Any, List, Optional
 import os
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, FloatType, ArrayType, MapType
 
 class FootballMatchAnalyzer:
     def __init__(self):
+        # Initialize Spark session
+        self.spark = SparkSession.builder \
+            .appName("FootballAnalysis") \
+            .config("spark.sql.execution.arrow.pyspark.enabled", "true") \
+            .getOrCreate()
+        # Set log level to reduce verbosity
+        self.spark.sparkContext.setLogLevel("ERROR")
+        
+        # Enhanced visualization settings with better contrast
+        self.viz_config = {
+            'pitch_color': '#0e1117',  # Darker background for better contrast
+            'line_color': (1, 1, 1, 0.8),  # White with 80% opacity (using matplotlib-compatible RGBA tuple)
+            'home_color': '#3498db',  # Bright blue for home team
+            'away_color': '#e74c3c',  # Bright red for away team
+            'heatmap_home_cmap': 'plasma',  # High contrast colormap for home heatmaps
+            'heatmap_away_cmap': 'inferno',  # High contrast colormap for away heatmaps
+            'shot_goal_color': '#2ecc71',  # Bright green for goals
+            'shot_miss_color': '#f39c12',  # Bright orange for missed shots
+            'text_color': 'white'  # White text for better readability
+        }
+        
+        # Update config with visualization settings
         self.config = {
-            'pitch_color': '#22312b',
-            'line_color': 'white',
-            'home_color': '#3498db',
-            'away_color': '#e74c3c'
+            'pitch_color': self.viz_config['pitch_color'],
+            'line_color': self.viz_config['line_color'],
+            'home_color': self.viz_config['home_color'],
+            'away_color': self.viz_config['away_color']
         }
         
     def load_data(self, file_path: str) -> Dict:
-        """Load StatsBomb JSON data."""
+        """Load StatsBomb JSON data, optionally using Spark for large files."""
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            return data
+            # Check file size to determine whether to use Spark
+            file_size = os.path.getsize(file_path)
+            use_spark = file_size > 10 * 1024 * 1024  # Use Spark for files larger than 10MB
+            
+            if use_spark:
+                # Define schema for StatsBomb data
+                events_schema = self._get_statsbomb_schema()
+                
+                # Read JSON with Spark
+                df = self.spark.read.json(file_path, multiLine=True)
+                
+                # Convert to Python objects for compatibility with existing code
+                events = df.rdd.collect()
+                events = [event.asDict() for event in events]
+                return events
+            else:
+                # Use regular Python for smaller files
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                return data
         except Exception as e:
             print(f"Error loading data: {e}")
             return None
     
+    def _get_statsbomb_schema(self):
+        """Create a simplified schema for StatsBomb data."""
+        # This is a simplified schema - the actual StatsBomb data is more complex
+        # We'll let Spark infer the schema for most parts, but define this for reference
+        return StructType([
+            StructField("id", StringType(), True),
+            StructField("index", IntegerType(), True),
+            StructField("period", IntegerType(), True),
+            StructField("timestamp", StringType(), True),
+            StructField("minute", IntegerType(), True),
+            StructField("second", IntegerType(), True),
+            StructField("type", StructType([
+                StructField("id", IntegerType(), True),
+                StructField("name", StringType(), True)
+            ]), True),
+            StructField("possession", IntegerType(), True),
+            StructField("possession_team", StructType([
+                StructField("id", IntegerType(), True),
+                StructField("name", StringType(), True)
+            ]), True),
+            StructField("team", StructType([
+                StructField("id", IntegerType(), True),
+                StructField("name", StringType(), True)
+            ]), True),
+            StructField("location", ArrayType(FloatType()), True),
+        ])
+        
     def extract_match_details(self, events: List[Dict]) -> Dict[str, Any]:
         """Extract basic match details (teams, formations)."""
-        # Find unique teams
-        teams = set()
-        for event in events:
-            if 'team' in event and 'name' in event['team']:
-                teams.add(event['team']['name'])
-        
-        team_names = list(teams)
-        if len(team_names) != 2:
-            team_names = ["Team A", "Team B"] if len(team_names) < 2 else team_names[:2]
+        # Consider using Spark for this if events is large
+        if len(events) > 10000:  # Arbitrary threshold
+            # Convert to Spark DataFrame
+            events_df = self.spark.createDataFrame(events)
             
-        home_team, away_team = team_names
-        
-        # Extract formations from Starting XI events
-        home_formation = "Unknown"
-        away_formation = "Unknown"
-        
-        for event in events:
-            if event.get('type', {}).get('name') == "Starting XI" and 'tactics' in event:
-                team_name = event.get('team', {}).get('name')
-                if team_name == home_team and 'formation' in event['tactics']:
-                    home_formation = str(event['tactics']['formation'])
-                elif team_name == away_team and 'formation' in event['tactics']:
-                    away_formation = str(event['tactics']['formation'])
+            # Find unique teams
+            teams_df = events_df.select("team.name").distinct()
+            team_names = [row["name"] for row in teams_df.collect() if row["name"] is not None]
+            
+            if len(team_names) != 2:
+                team_names = ["Team A", "Team B"] if len(team_names) < 2 else team_names[:2]
+                
+            home_team, away_team = team_names
+            
+            # Extract formations from Starting XI events
+            home_formation = "Unknown"
+            away_formation = "Unknown"
+            
+            # Filter for Starting XI events
+            starting_xi_df = events_df.filter(
+                (events_df["type.name"] == "Starting XI") & 
+                events_df["tactics"].isNotNull()
+            )
+            
+            for row in starting_xi_df.collect():
+                team_name = row["team"]["name"] if row["team"] and "name" in row["team"] else None
+                if team_name == home_team and row["tactics"] and "formation" in row["tactics"]:
+                    home_formation = str(row["tactics"]["formation"])
+                elif team_name == away_team and row["tactics"] and "formation" in row["tactics"]:
+                    away_formation = str(row["tactics"]["formation"])
+        else:
+            # Use the original code for smaller datasets
+            # Find unique teams
+            teams = set()
+            for event in events:
+                if 'team' in event and 'name' in event['team']:
+                    teams.add(event['team']['name'])
+            
+            team_names = list(teams)
+            if len(team_names) != 2:
+                team_names = ["Team A", "Team B"] if len(team_names) < 2 else team_names[:2]
+                
+            home_team, away_team = team_names
+            
+            # Extract formations from Starting XI events
+            home_formation = "Unknown"
+            away_formation = "Unknown"
+            
+            for event in events:
+                if event.get('type', {}).get('name') == "Starting XI" and 'tactics' in event:
+                    team_name = event.get('team', {}).get('name')
+                    if team_name == home_team and 'formation' in event['tactics']:
+                        home_formation = str(event['tactics']['formation'])
+                    elif team_name == away_team and 'formation' in event['tactics']:
+                        away_formation = str(event['tactics']['formation'])
         
         return {
             "home_team": home_team,
@@ -64,58 +165,128 @@ class FootballMatchAnalyzer:
         }
     
     def calculate_match_stats(self, events: List[Dict], home_team: str, away_team: str) -> Dict[str, Any]:
-        """Calculate key match statistics."""
-        # Initialize counters
-        total_events = len(events)
-        home_possession = 0
-        away_possession = 0
-        home_passes = 0
-        away_passes = 0
-        home_completed_passes = 0
-        away_completed_passes = 0
-        home_shots = 0
-        away_shots = 0
-        home_goals = 0
-        away_goals = 0
-        home_xg = 0.0
-        away_xg = 0.0
-        
-        # Process events
-        for event in events:
-            # Count possession
-            possession_team = event.get('possession_team', {}).get('name')
-            if possession_team == home_team:
-                home_possession += 1
-            elif possession_team == away_team:
-                away_possession += 1
+        """Calculate key match statistics using PySpark for large datasets."""
+        # Using PySpark for processing if the dataset is large
+        if len(events) > 10000:  # Arbitrary threshold for using Spark
+            # Convert events to DataFrame
+            events_df = self.spark.createDataFrame(events)
+            
+            # Register as temporary view for SQL queries
+            events_df.createOrReplaceTempView("events")
+            
+            # Calculate possession (count of events by possession team)
+            possession_df = self.spark.sql(f"""
+                SELECT 
+                    possession_team.name as team_name, 
+                    COUNT(*) as possession_count 
+                FROM events 
+                WHERE possession_team.name IS NOT NULL
+                GROUP BY possession_team.name
+            """)
+            
+            # Get possession counts
+            possession_counts = {row["team_name"]: row["possession_count"] 
+                               for row in possession_df.collect()}
+            
+            total_events = len(events)
+            home_possession = possession_counts.get(home_team, 0)
+            away_possession = possession_counts.get(away_team, 0)
+            
+            # Calculate passes and pass completion
+            passes_df = self.spark.sql(f"""
+                SELECT 
+                    team.name as team_name,
+                    COUNT(*) as passes,
+                    SUM(CASE WHEN pass.outcome IS NULL THEN 1 ELSE 0 END) as completed_passes
+                FROM events
+                WHERE type.name = 'Pass' AND team.name IS NOT NULL
+                GROUP BY team.name
+            """)
+            
+            # Get pass statistics
+            pass_stats = {row["team_name"]: {"passes": row["passes"], "completed": row["completed_passes"]} 
+                         for row in passes_df.collect()}
+            
+            home_passes = pass_stats.get(home_team, {"passes": 0, "completed": 0})["passes"]
+            away_passes = pass_stats.get(away_team, {"passes": 0, "completed": 0})["passes"]
+            home_completed_passes = pass_stats.get(home_team, {"passes": 0, "completed": 0})["completed"]
+            away_completed_passes = pass_stats.get(away_team, {"passes": 0, "completed": 0})["completed"]
+            
+            # Calculate shots and goals
+            shots_df = self.spark.sql(f"""
+                SELECT 
+                    team.name as team_name,
+                    COUNT(*) as shots,
+                    SUM(CASE WHEN shot.outcome.name = 'Goal' THEN 1 ELSE 0 END) as goals,
+                    SUM(COALESCE(shot.statsbomb_xg, 0)) as xg
+                FROM events
+                WHERE type.name = 'Shot' AND team.name IS NOT NULL
+                GROUP BY team.name
+            """)
+            
+            # Get shot statistics
+            shot_stats = {row["team_name"]: {"shots": row["shots"], "goals": row["goals"], "xg": row["xg"]} 
+                         for row in shots_df.collect()}
+            
+            home_shots = shot_stats.get(home_team, {"shots": 0, "goals": 0, "xg": 0.0})["shots"]
+            away_shots = shot_stats.get(away_team, {"shots": 0, "goals": 0, "xg": 0.0})["shots"]
+            home_goals = shot_stats.get(home_team, {"shots": 0, "goals": 0, "xg": 0.0})["goals"]
+            away_goals = shot_stats.get(away_team, {"shots": 0, "goals": 0, "xg": 0.0})["goals"]
+            home_xg = shot_stats.get(home_team, {"shots": 0, "goals": 0, "xg": 0.0})["xg"]
+            away_xg = shot_stats.get(away_team, {"shots": 0, "goals": 0, "xg": 0.0})["xg"]
+        else:
+            # Use original implementation for smaller datasets
+            # Initialize counters
+            total_events = len(events)
+            home_possession = 0
+            away_possession = 0
+            home_passes = 0
+            away_passes = 0
+            home_completed_passes = 0
+            away_completed_passes = 0
+            home_shots = 0
+            away_shots = 0
+            home_goals = 0
+            away_goals = 0
+            home_xg = 0.0
+            away_xg = 0.0
+            
+            # Process events
+            for event in events:
+                # Count possession
+                possession_team = event.get('possession_team', {}).get('name')
+                if possession_team == home_team:
+                    home_possession += 1
+                elif possession_team == away_team:
+                    away_possession += 1
+                    
+                # Process by event type
+                event_type = event.get('type', {}).get('name')
+                team_name = event.get('team', {}).get('name')
                 
-            # Process by event type
-            event_type = event.get('type', {}).get('name')
-            team_name = event.get('team', {}).get('name')
-            
-            if event_type == 'Pass' and team_name:
-                # Count passes
-                if team_name == home_team:
-                    home_passes += 1
-                    if 'outcome' not in event.get('pass', {}):
-                        home_completed_passes += 1
-                elif team_name == away_team:
-                    away_passes += 1
-                    if 'outcome' not in event.get('pass', {}):
-                        away_completed_passes += 1
-            
-            elif event_type == 'Shot' and team_name:
-                # Count shots and goals
-                if team_name == home_team:
-                    home_shots += 1
-                    if event.get('shot', {}).get('outcome', {}).get('name') == 'Goal':
-                        home_goals += 1
-                    home_xg += event.get('shot', {}).get('statsbomb_xg', 0)
-                elif team_name == away_team:
-                    away_shots += 1
-                    if event.get('shot', {}).get('outcome', {}).get('name') == 'Goal':
-                        away_goals += 1
-                    away_xg += event.get('shot', {}).get('statsbomb_xg', 0)
+                if event_type == 'Pass' and team_name:
+                    # Count passes
+                    if team_name == home_team:
+                        home_passes += 1
+                        if 'outcome' not in event.get('pass', {}):
+                            home_completed_passes += 1
+                    elif team_name == away_team:
+                        away_passes += 1
+                        if 'outcome' not in event.get('pass', {}):
+                            away_completed_passes += 1
+                
+                elif event_type == 'Shot' and team_name:
+                    # Count shots and goals
+                    if team_name == home_team:
+                        home_shots += 1
+                        if event.get('shot', {}).get('outcome', {}).get('name') == 'Goal':
+                            home_goals += 1
+                        home_xg += event.get('shot', {}).get('statsbomb_xg', 0)
+                    elif team_name == away_team:
+                        away_shots += 1
+                        if event.get('shot', {}).get('outcome', {}).get('name') == 'Goal':
+                            away_goals += 1
+                        away_xg += event.get('shot', {}).get('statsbomb_xg', 0)
         
         # Calculate percentages
         home_possession_pct = round(home_possession / total_events * 100, 1) if total_events > 0 else 50
@@ -157,7 +328,98 @@ class FootballMatchAnalyzer:
         }
     
     def get_player_stats(self, events: List[Dict], team_name: str) -> List[Dict]:
-        """Extract player-level statistics."""
+        """Extract player-level statistics using PySpark for large datasets."""
+        # Use Spark for large datasets
+        if len(events) > 10000:  # Arbitrary threshold
+            # Convert to Spark DataFrame
+            events_df = self.spark.createDataFrame(events)
+            events_df.createOrReplaceTempView("events")
+            
+            # Find players from starting XI
+            lineup_df = self.spark.sql(f"""
+                SELECT 
+                    tactics.lineup 
+                FROM events
+                WHERE type.name = 'Starting XI' 
+                AND team.name = '{team_name}'
+                AND tactics.lineup IS NOT NULL
+                LIMIT 1
+            """)
+            
+            # Check if we found the lineup
+            if lineup_df.count() > 0:
+                # Extract player info from lineup
+                lineup_row = lineup_df.collect()[0]
+                if "lineup" in lineup_row and lineup_row["lineup"]:
+                    player_info = {}
+                    for player in lineup_row["lineup"]:
+                        player_name = player.get("player", {}).get("name")
+                        if player_name:
+                            player_info[player_name] = {
+                                'player_name': player_name,
+                                'position': player.get("position", {}).get("name", ""),
+                                'jersey': player.get("jersey_number", 0),
+                                'passes': 0,
+                                'successful_passes': 0,
+                                'pass_completion': 0,
+                                'shots': 0,
+                                'goals': 0,
+                                'xg': 0.0
+                            }
+                    
+                    # Get pass statistics
+                    pass_stats_df = self.spark.sql(f"""
+                        SELECT 
+                            player.name as player_name,
+                            COUNT(*) as passes,
+                            SUM(CASE WHEN pass.outcome IS NULL THEN 1 ELSE 0 END) as completed_passes
+                        FROM events
+                        WHERE type.name = 'Pass' 
+                        AND team.name = '{team_name}'
+                        AND player.name IS NOT NULL
+                        GROUP BY player.name
+                    """)
+                    
+                    # Update player info with pass statistics
+                    for row in pass_stats_df.collect():
+                        player_name = row["player_name"]
+                        if player_name in player_info:
+                            player_info[player_name]["passes"] = row["passes"]
+                            player_info[player_name]["successful_passes"] = row["completed_passes"]
+                    
+                    # Get shot statistics
+                    shot_stats_df = self.spark.sql(f"""
+                        SELECT 
+                            player.name as player_name,
+                            COUNT(*) as shots,
+                            SUM(CASE WHEN shot.outcome.name = 'Goal' THEN 1 ELSE 0 END) as goals,
+                            SUM(COALESCE(shot.statsbomb_xg, 0)) as xg
+                        FROM events
+                        WHERE type.name = 'Shot' 
+                        AND team.name = '{team_name}'
+                        AND player.name IS NOT NULL
+                        GROUP BY player.name
+                    """)
+                    
+                    # Update player info with shot statistics
+                    for row in shot_stats_df.collect():
+                        player_name = row["player_name"]
+                        if player_name in player_info:
+                            player_info[player_name]["shots"] = row["shots"]
+                            player_info[player_name]["goals"] = row["goals"]
+                            player_info[player_name]["xg"] = row["xg"]
+                    
+                    # Calculate pass completion percentages
+                    for player_name, stats in player_info.items():
+                        if stats["passes"] > 0:
+                            stats["pass_completion"] = round(stats["successful_passes"] / stats["passes"] * 100, 1)
+                        stats["xg"] = round(stats["xg"], 2)  # Round xG
+                    
+                    return list(player_info.values())
+            
+            # If we couldn't get the lineup or process with Spark, fall back to the original method
+        
+        # Original method for smaller datasets or if Spark processing failed
         # Get player info from starting XI
         player_info = {}
         
@@ -268,25 +530,41 @@ class FootballMatchAnalyzer:
     
     def create_player_heatmap(self, events: List[Dict], player_name: str, team_name: str) -> str:
         """Create a heatmap showing the positions of a specific player on the pitch."""
-        # Filter events for the specific player
-        player_events = []
-        for event in events:
-            if (event.get('player', {}).get('name') == player_name and 
-                event.get('team', {}).get('name') == team_name and
-                'location' in event):
-                player_events.append(event)
+        # Use Spark to filter events for large datasets
+        if len(events) > 10000:
+            # Convert to Spark DataFrame
+            events_df = self.spark.createDataFrame(events)
+            
+            # Filter for player events with location data
+            player_events_df = events_df.filter(
+                (events_df["player.name"] == player_name) & 
+                (events_df["team.name"] == team_name) &
+                events_df["location"].isNotNull()
+            )
+            
+            # Convert back to Python for visualization
+            player_events = [event.asDict() for event in player_events_df.collect()]
+        else:
+            # Use original implementation for smaller datasets
+            # Filter events for the specific player
+            player_events = []
+            for event in events:
+                if (event.get('player', {}).get('name') == player_name and 
+                    event.get('team', {}).get('name') == team_name and
+                    'location' in event):
+                    player_events.append(event)
         
         if not player_events:
             # If no events found, create empty visualization with a message
-            plt.figure(figsize=(10, 7))
+            plt.figure(figsize=(10, 7), facecolor=self.viz_config['pitch_color'])
             ax = plt.subplot(1, 1, 1)
             self.draw_pitch(ax)
             plt.text(60, 40, f"No position data for {player_name}", 
-                     ha='center', va='center', color='white', fontsize=16)
+                     ha='center', va='center', color=self.viz_config['text_color'], fontsize=16)
             
             # Save figure as base64 for HTML embedding
             with BytesIO() as buffer:
-                plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
+                plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight', facecolor=self.viz_config['pitch_color'])
                 plt.close()
                 return base64.b64encode(buffer.getvalue()).decode('utf-8')
         
@@ -299,14 +577,14 @@ class FootballMatchAnalyzer:
                 y_coords.append(event['location'][1])
         
         # Create figure
-        plt.figure(figsize=(10, 7))
+        plt.figure(figsize=(10, 7), facecolor=self.viz_config['pitch_color'])
         ax = plt.subplot(1, 1, 1)
         
         # Draw the football pitch
         self.draw_pitch(ax)
         
         # Add title
-        plt.title(f"{player_name} - Heatmap", color='white', fontsize=14)
+        plt.title(f"{player_name} - Position Heatmap", color=self.viz_config['text_color'], fontsize=16, fontweight='bold')
         
         # If we have enough points, create a heatmap
         if len(x_coords) > 5:
@@ -325,36 +603,41 @@ class FootballMatchAnalyzer:
                 np.linspace(0, 80, heatmap.shape[1])
             )
             
-            # Plot the heatmap
+            # Use better colormaps for the heatmap based on team
+            cmap = self.viz_config['heatmap_home_cmap'] if team_name == self.config['home_team'] else self.viz_config['heatmap_away_cmap']
+            
+            # Plot the heatmap with enhanced colors
             contour = ax.contourf(
                 x_pos, y_pos, heatmap.T, 
-                cmap=team_name == self.config['home_team'] and 'Blues' or 'Reds',
-                alpha=0.7, levels=20
+                cmap=cmap,
+                alpha=0.75, levels=20
             )
             
-            # Add colorbar
-            plt.colorbar(contour, ax=ax, label='Event Density')
+            # Add colorbar with better styling
+            cbar = plt.colorbar(contour, ax=ax)
+            cbar.set_label('Event Density', color=self.viz_config['text_color'])
+            cbar.ax.yaxis.set_tick_params(color=self.viz_config['text_color'])
+            plt.setp(plt.getp(cbar.ax, 'yticklabels'), color=self.viz_config['text_color'])
         else:
             # If not enough points, just scatter plot them
-            ax.scatter(x_coords, y_coords, 
-                       c=team_name == self.config['home_team'] and self.config['home_color'] or self.config['away_color'],
-                       s=100, alpha=0.7)
+            team_color = self.viz_config['home_color'] if team_name == self.config['home_team'] else self.viz_config['away_color']
+            ax.scatter(x_coords, y_coords, c=team_color, s=100, alpha=0.7, edgecolors='white')
             
             plt.text(60, 10, f"Limited data points ({len(x_coords)})", 
-                     ha='center', va='center', color='white', fontsize=10)
+                     ha='center', va='center', color=self.viz_config['text_color'], fontsize=10)
         
         # Plot event points
-        ax.scatter(x_coords, y_coords, 
-                   c=team_name == self.config['home_team'] and self.config['home_color'] or self.config['away_color'],
-                   s=30, alpha=0.4)
+        team_color = self.viz_config['home_color'] if team_name == self.config['home_team'] else self.viz_config['away_color']
+        ax.scatter(x_coords, y_coords, c=team_color, s=30, alpha=0.5, edgecolors='white')
                    
         # Add player info
         plt.figtext(0.5, 0.02, f"Events: {len(player_events)} | Team: {team_name}",
-                    ha="center", color="white", fontsize=10)
+                    ha="center", color=self.viz_config['text_color'], fontsize=12)
                     
-        # Save figure as base64 for HTML embedding
+        # Save figure as base64 for HTML embedding with better background
         with BytesIO() as buffer:
-            plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
+            plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight', 
+                       facecolor=self.viz_config['pitch_color'], edgecolor='none')
             plt.close()
             return base64.b64encode(buffer.getvalue()).decode('utf-8')
     
@@ -416,58 +699,78 @@ class FootballMatchAnalyzer:
     
     def create_shot_map(self, events: List[Dict], team_name: str) -> str:
         """Create a shot map visualization for a team."""
-        # Filter shot events for the team
-        shots = []
-        for event in events:
-            if (event.get('type', {}).get('name') == 'Shot' and 
-                event.get('team', {}).get('name') == team_name and
-                'location' in event):
-                shots.append(event)
+        # Use Spark for large datasets
+        if len(events) > 10000:
+            # Convert to Spark DataFrame
+            events_df = self.spark.createDataFrame(events)
+            
+            # Filter for shots by the team
+            shot_events_df = events_df.filter(
+                (events_df["type.name"] == "Shot") & 
+                (events_df["team.name"] == team_name) &
+                events_df["location"].isNotNull()
+            )
+            
+            # Convert back to Python for visualization
+            shots = [event.asDict() for event in shot_events_df.collect()]
+        else:
+            # Use original implementation for smaller datasets
+            # Filter shot events for the team
+            shots = []
+            for event in events:
+                if (event.get('type', {}).get('name') == 'Shot' and 
+                    event.get('team', {}).get('name') == team_name and
+                    'location' in event):
+                    shots.append(event)
                 
-        # Create figure
-        plt.figure(figsize=(10, 7))
+        # Create figure with enhanced background
+        plt.figure(figsize=(10, 7), facecolor=self.viz_config['pitch_color'])
         ax = plt.subplot(1, 1, 1)
         
         # Draw the football pitch
         self.draw_pitch(ax)
         
-        # Add title
-        plt.title(f"{team_name} - Shot Map", color='white', fontsize=14)
+        # Add title with enhanced styling
+        plt.title(f"{team_name} - Shot Map", color=self.viz_config['text_color'], 
+                 fontsize=16, fontweight='bold')
         
-        # Add shots to the plot
+        # Add shots to the plot with enhanced colors
         for shot in shots:
             x, y = shot['location'][0], shot['location'][1]
             is_goal = shot.get('shot', {}).get('outcome', {}).get('name') == 'Goal'
             xg = shot.get('shot', {}).get('statsbomb_xg', 0)
             
-            # Size based on xG
-            size = 100 + (xg * 900)
+            # Size based on xG (slightly larger for better visibility)
+            size = 120 + (xg * 1000)
             
-            # Color based on outcome
-            color = 'green' if is_goal else 'orange'
+            # Color based on outcome with enhanced colors
+            color = self.viz_config['shot_goal_color'] if is_goal else self.viz_config['shot_miss_color']
             
-            # Plot the shot
-            ax.scatter(x, y, s=size, alpha=0.7, color=color, edgecolors='white', linewidths=1)
+            # Plot the shot with white border for better visibility
+            ax.scatter(x, y, s=size, alpha=0.8, color=color, edgecolors='white', linewidths=1.5)
             
-            # Add xG label if significant
+            # Add xG label if significant with improved visibility
             if xg > 0.1:
                 plt.text(x, y, f"{xg:.2f}", ha='center', va='center', 
-                         color='white', fontsize=8, fontweight='bold')
+                         color='white', fontsize=9, fontweight='bold')
                 
-        # Add legend
-        goal_marker = plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='green', 
+        # Add legend with enhanced styling
+        goal_marker = plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=self.viz_config['shot_goal_color'], 
                                 markersize=10, label='Goal')
-        miss_marker = plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='orange', 
+        miss_marker = plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=self.viz_config['shot_miss_color'], 
                                 markersize=10, label='No Goal')
-        ax.legend(handles=[goal_marker, miss_marker], loc='lower center')
+        legend = ax.legend(handles=[goal_marker, miss_marker], loc='lower center')
+        plt.setp(legend.get_texts(), color=self.viz_config['text_color'])
         
-        # Add shot count
-        plt.figtext(0.5, 0.02, f"Total Shots: {len(shots)} | Goals: {sum(1 for s in shots if s.get('shot', {}).get('outcome', {}).get('name') == 'Goal')}",
-                    ha="center", color="white", fontsize=10)
+        # Add shot count with enhanced styling
+        goals = sum(1 for s in shots if s.get('shot', {}).get('outcome', {}).get('name') == 'Goal')
+        plt.figtext(0.5, 0.02, f"Total Shots: {len(shots)} | Goals: {goals}",
+                    ha="center", color=self.viz_config['text_color'], fontsize=12)
                     
-        # Save figure as base64 for HTML embedding
+        # Save figure as base64 for HTML embedding with enhanced background
         with BytesIO() as buffer:
-            plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
+            plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight',
+                       facecolor=self.viz_config['pitch_color'], edgecolor='none')
             plt.close()
             return base64.b64encode(buffer.getvalue()).decode('utf-8')
     
@@ -563,6 +866,12 @@ class FootballMatchAnalyzer:
             "player_team": player_team
         }
     
+    def __del__(self):
+        """Clean up resources when the object is destroyed."""
+        # Stop Spark session when the analyzer is destroyed
+        if hasattr(self, 'spark'):
+            self.spark.stop()
+    
 if __name__ == "__main__":
     # This is a standalone test mode for the analyzer
     # For web application usage, the analyzer is called via server.py
@@ -599,3 +908,6 @@ if __name__ == "__main__":
         print(f"Possession: {match_stats['possession']['home']}% - {match_stats['possession']['away']}%")
     else:
         print(f"Error: {analysis_results['error']}")
+    
+    # Clean up Spark session
+    analyzer.spark.stop()

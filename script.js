@@ -17,6 +17,8 @@ const elements = {
     awayFormation: document.getElementById('away-formation'),
     homeScore: document.getElementById('home-score'),
     awayScore: document.getElementById('away-score'),
+    homeTeamLogo: document.getElementById('home-team-logo'),
+    awayTeamLogo: document.getElementById('away-team-logo'),
     
     // Stats
     possessionHome: document.getElementById('possession-home'),
@@ -39,6 +41,8 @@ const elements = {
     playerHeatmap: document.getElementById('position-heatmap'),
     playerHeatmapTitle: document.getElementById('heatmap-title'),
     playerSelector: document.getElementById('player-selector'),
+    playerImage: document.getElementById('player-image'),
+    playerInfoContainer: document.getElementById('player-info-container'),
     
     // Player stats
     homeSummary: document.getElementById('home-summary'),
@@ -352,6 +356,21 @@ function renderMatchData(data) {
     elements.homeFormation.textContent = data.match_details.home_formation;
     elements.awayFormation.textContent = data.match_details.away_formation;
     
+    // Render team logos if available
+    if (data.team_logos && data.team_logos.home) {
+        elements.homeTeamLogo.src = `data:image/png;base64,${data.team_logos.home}`;
+        elements.homeTeamLogo.classList.remove('hidden');
+    } else {
+        elements.homeTeamLogo.classList.add('hidden');
+    }
+    
+    if (data.team_logos && data.team_logos.away) {
+        elements.awayTeamLogo.src = `data:image/png;base64,${data.team_logos.away}`;
+        elements.awayTeamLogo.classList.remove('hidden');
+    } else {
+        elements.awayTeamLogo.classList.add('hidden');
+    }
+    
     // Render scores
     elements.homeScore.textContent = data.match_stats.goals.home;
     elements.awayScore.textContent = data.match_stats.goals.away;
@@ -411,6 +430,14 @@ function renderMatchData(data) {
         if (elements.playerHeatmapTitle && data.player_name) {
             elements.playerHeatmapTitle.textContent = `${data.player_name} - Position Heatmap`;
         }
+    }
+    
+    // Render player image if available
+    if (data.player_image && elements.playerImage) {
+        elements.playerImage.src = `data:image/png;base64,${data.player_image}`;
+        elements.playerInfoContainer.classList.remove('hidden');
+    } else {
+        elements.playerInfoContainer.classList.add('hidden');
     }
 }
 

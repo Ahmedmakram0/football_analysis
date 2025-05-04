@@ -7,6 +7,8 @@ from football_analysis import FootballMatchAnalyzer
 from werkzeug.utils import secure_filename
 import glob
 import logging
+import json
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, 
@@ -73,6 +75,28 @@ def upload_file():
             "file_path": file_path
         })
 
+@app.route('/get-player-image', methods=['GET'])
+def get_player_image():
+    """Return a placeholder response for player image"""
+    player_name = request.args.get('name')
+    
+    if not player_name:
+        return jsonify({"error": "Player name is required"}), 400
+    
+    # Return a simple response instead of an image
+    return jsonify({"message": "Player image functionality has been removed"})
+
+@app.route('/get-team-logo', methods=['GET'])
+def get_team_logo():
+    """Return a placeholder response for team logo"""
+    team_name = request.args.get('name')
+    
+    if not team_name:
+        return jsonify({"error": "Team name is required"}), 400
+    
+    # Return a simple response instead of a logo
+    return jsonify({"message": "Team logo functionality has been removed"})
+
 @app.route('/analyze', methods=['GET'])
 def analyze_match():
     # Get file path from query parameter
@@ -99,6 +123,11 @@ def analyze_match():
     except Exception as e:
         logger.error(f"Error analyzing match: {str(e)}", exc_info=True)
         return jsonify({"error": str(e)}), 500
+
+def _sanitize_filename(filename):
+    """Sanitize a filename to be safe for filesystem use"""
+    # Replace non-alphanumeric characters with underscores
+    return ''.join(c if c.isalnum() else '_' for c in filename)
 
 def open_browser():
     webbrowser.open('http://localhost:5000/')

@@ -81,8 +81,11 @@
             <section class="bg-primary rounded-lg shadow-lg p-8 mb-8">
                 <div class="flex flex-col md:flex-row justify-between items-center text-white">
                     <div class="flex-1 text-center mb-6 md:mb-0">
-                        <h2 id="home-team-name" class="text-2xl font-bold text-homeTeam">Home Team</h2>
-                        <div id="home-formation" class="text-lg opacity-90 text-homeTeam">Formation</div>
+                        <div class="flex flex-col items-center">
+                            <img id="home-team-logo" src="" alt="Home Team Logo" class="w-24 h-24 mb-3 rounded-full bg-white p-1">
+                            <h2 id="home-team-name" class="text-2xl font-bold text-homeTeam">Home Team</h2>
+                            <div id="home-formation" class="text-lg opacity-90 text-homeTeam">Formation</div>
+                        </div>
                     </div>
                     <div class="flex items-center gap-4 mb-6 md:mb-0 text-4xl font-bold">
                         <span id="home-score" class="text-homeTeam">0</span>
@@ -90,8 +93,11 @@
                         <span id="away-score" class="text-awayTeam">0</span>
                     </div>
                     <div class="flex-1 text-center">
-                        <h2 id="away-team-name" class="text-2xl font-bold text-awayTeam">Away Team</h2>
-                        <div id="away-formation" class="text-lg opacity-90 text-awayTeam">Formation</div>
+                        <div class="flex flex-col items-center">
+                            <img id="away-team-logo" src="" alt="Away Team Logo" class="w-24 h-24 mb-3 rounded-full bg-white p-1">
+                            <h2 id="away-team-name" class="text-2xl font-bold text-awayTeam">Away Team</h2>
+                            <div id="away-formation" class="text-lg opacity-90 text-awayTeam">Formation</div>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -182,6 +188,18 @@
                                 <option value="">Select a player</option>
                             </select>
                         </div>
+                        
+                        <div id="player-info-container" class="hidden flex items-center mb-4 bg-gray-50 p-4 rounded-lg">
+                            <div class="w-24 h-24 mr-4">
+                                <img id="player-image" src="" alt="Player Photo" class="w-full h-full object-cover rounded-full border-2 border-accent">
+                            </div>
+                            <div>
+                                <h4 id="player-name" class="text-xl font-bold text-primary"></h4>
+                                <p id="player-team" class="text-gray-600"></p>
+                                <p id="player-position" class="text-gray-600"></p>
+                            </div>
+                        </div>
+                        
                         <h3 id="heatmap-title" class="text-lg font-semibold text-secondary mb-4 text-center">Player Position Heatmap</h3>
                         <div class="pitch p-3 rounded-md">
                             <img id="position-heatmap" src="" alt="Player Position Heatmap" class="w-full rounded-md">
