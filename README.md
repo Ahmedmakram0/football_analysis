@@ -178,7 +178,7 @@ Example files are provided in the `uploads/` directory to help you get started.
 
 ### Frontend
 - **HTML**: Frontend interface
-- **Tailwind CSS**: Styling framework
+- **Bootstrap**: Styling framework
 - **Chart.js**: Interactive charts and visualizations
 - **Font Awesome**: Icon library
 
