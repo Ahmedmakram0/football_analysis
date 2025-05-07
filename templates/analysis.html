@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Match Analysis | Football Analysis Tool</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding-top: 2rem;
+            background-color: #f8f9fa;
+        }
+        .container {
+            max-width: 1200px;
+        }
+        .header {
+            border-bottom: 1px solid #e5e5e5;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+        }
+        .viz-container {
+            background-color: #fff;
+            border-radius: 5px;
+            padding: 1.5rem;
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            margin-bottom: 2rem;
+        }
+        .tab-content {
+            padding: 1.5rem;
+            background-color: #fff;
+            border: 1px solid #dee2e6;
+            border-top: none;
+            border-radius: 0 0 5px 5px;
+        }
+        .stats-card {
+            transition: transform 0.2s;
+        }
+        .stats-card:hover {
+            transform: translateY(-5px);
+        }
+        .player-row:hover {
+            background-color: #f1f1f1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 class="text-center">Match Analysis</h1>
+            <p class="text-center text-muted">
+                {{ match_details.home_team }} vs {{ match_details.away_team }} | 
+                File: {{ filename }}
+            </p>
+            <div class="text-center">
+                <a href="/" class="btn btn-outline-secondary">Back to Home</a>
+            </div>
+        </div>
+        
+        <!-- Match Overview Visualization -->
+        <div class="viz-container">
+            <h2>Match Overview</h2>
+            <div class="text-center my-4">
+                <img src="data:image/png;base64,{{ result.match_visualization }}" class="img-fluid" alt="Match Visualization">
+            </div>
+            
+            <div class="row mt-4">
+                <div class="col-md-4">
+                    <div class="card stats-card bg-light">
+                        <div class="card-header text-center">
+                            <h5>Possession</h5>
+                        </div>
+                        <div class="card-body text-center">
+                            <div class="row">
+                                <div class="col-6 text-center">
+                                    <h2 style="color: #3498db;">{{ match_stats.possession.home }}%</h2>
+                                    <p>{{ match_details.home_team }}</p>
+                                </div>
+                                <div class="col-6 text-center">
+                                    <h2 style="color: #e74c3c;">{{ match_stats.possession.away }}%</h2>
+                                    <p>{{ match_details.away_team }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-4">
+                    <div class="card stats-card bg-light">
+                        <div class="card-header text-center">
+                            <h5>Shots / Goals</h5>
+                        </div>
+                        <div class="card-body text-center">
+                            <div class="row">
+                                <div class="col-6 text-center">
+                                    <h2 style="color: #3498db;">{{ match_stats.shots.home }}/{{ match_stats.goals.home }}</h2>
+                                    <p>{{ match_details.home_team }}</p>
+                                </div>
+                                <div class="col-6 text-center">
+                                    <h2 style="color: #e74c3c;">{{ match_stats.shots.away }}/{{ match_stats.goals.away }}</h2>
+                                    <p>{{ match_details.away_team }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-4">
+                    <div class="card stats-card bg-light">
+                        <div class="card-header text-center">
+                            <h5>Expected Goals (xG)</h5>
+                        </div>
+                        <div class="card-body text-center">
+                            <div class="row">
+                                <div class="col-6 text-center">
+                                    <h2 style="color: #3498db;">{{ match_stats.xg.home }}</h2>
+                                    <p>{{ match_details.home_team }}</p>
+                                </div>
+                                <div class="col-6 text-center">
+                                    <h2 style="color: #e74c3c;">{{ match_stats.xg.away }}</h2>
+                                    <p>{{ match_details.away_team }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Shot Maps -->
+        <div class="viz-container">
+            <h2>Shot Maps</h2>
+            <ul class="nav nav-tabs" id="shotMapTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="home-shots-tab" data-bs-toggle="tab" data-bs-target="#home-shots" type="button" role="tab" aria-controls="home-shots" aria-selected="true">{{ match_details.home_team }}</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="away-shots-tab" data-bs-toggle="tab" data-bs-target="#away-shots" type="button" role="tab" aria-controls="away-shots" aria-selected="false">{{ match_details.away_team }}</button>
+                </li>
+            </ul>
+            <div class="tab-content" id="shotMapTabContent">
+                <div class="tab-pane fade show active" id="home-shots" role="tabpanel" aria-labelledby="home-shots-tab">
+                    <div class="text-center">
+                        <img src="data:image/png;base64,{{ result.home_shot_map }}" class="img-fluid" alt="Home Team Shot Map">
+                    </div>
+                </div>
+                <div class="tab-pane fade" id="away-shots" role="tabpanel" aria-labelledby="away-shots-tab">
+                    <div class="text-center">
+                        <img src="data:image/png;base64,{{ result.away_shot_map }}" class="img-fluid" alt="Away Team Shot Map">
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Player Heatmap (if a player is selected) -->
+        {% if result.player_heatmap %}
+        <div class="viz-container">
+            <h2>Player Position Heatmap: {{ result.player_name }}</h2>
+            <div class="text-center my-4">
+                <img src="data:image/png;base64,{{ result.player_heatmap }}" class="img-fluid" alt="Player Heatmap">
+            </div>
+        </div>
+        {% endif %}
+        
+        <!-- Player Statistics -->
+        <div class="viz-container">
+            <h2>Player Statistics</h2>
+            <ul class="nav nav-tabs" id="playerStatsTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="home-players-tab" data-bs-toggle="tab" data-bs-target="#home-players" type="button" role="tab" aria-controls="home-players" aria-selected="true">{{ match_details.home_team }}</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="away-players-tab" data-bs-toggle="tab" data-bs-target="#away-players" type="button" role="tab" aria-controls="away-players" aria-selected="false">{{ match_details.away_team }}</button>
+                </li>
+            </ul>
+            <div class="tab-content" id="playerStatsTabContent">
+                <!-- Home Team Players -->
+                <div class="tab-pane fade show active" id="home-players" role="tabpanel" aria-labelledby="home-players-tab">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Player</th>
+                                    <th>Position</th>
+                                    <th>Passes</th>
+                                    <th>Pass %</th>
+                                    <th>Shots</th>
+                                    <th>Goals</th>
+                                    <th>xG</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for player in home_players %}
+                                <tr class="player-row">
+                                    <td>{{ player.jersey }}</td>
+                                    <td>{{ player.player_name }}</td>
+                                    <td>{{ player.position }}</td>
+                                    <td>{{ player.passes }}</td>
+                                    <td>{{ player.pass_completion }}%</td>
+                                    <td>{{ player.shots }}</td>
+                                    <td>{{ player.goals }}</td>
+                                    <td>{{ player.xg }}</td>
+                                    <td>
+                                        <a href="/player_analysis?filename={{ filename }}&player_name={{ player.player_name }}" class="btn btn-sm btn-outline-primary">
+                                            View Heatmap
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="mt-3 p-3 bg-light rounded">
+                        <h5>Team Summary:</h5>
+                        <p>{{ result.home_summary|replace('\n', '<br>')|safe }}</p>
+                    </div>
+                </div>
+                
+                <!-- Away Team Players -->
+                <div class="tab-pane fade" id="away-players" role="tabpanel" aria-labelledby="away-players-tab">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Player</th>
+                                    <th>Position</th>
+                                    <th>Passes</th>
+                                    <th>Pass %</th>
+                                    <th>Shots</th>
+                                    <th>Goals</th>
+                                    <th>xG</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for player in away_players %}
+                                <tr class="player-row">
+                                    <td>{{ player.jersey }}</td>
+                                    <td>{{ player.player_name }}</td>
+                                    <td>{{ player.position }}</td>
+                                    <td>{{ player.passes }}</td>
+                                    <td>{{ player.pass_completion }}%</td>
+                                    <td>{{ player.shots }}</td>
+                                    <td>{{ player.goals }}</td>
+                                    <td>{{ player.xg }}</td>
+                                    <td>
+                                        <a href="/player_analysis?filename={{ filename }}&player_name={{ player.player_name }}" class="btn btn-sm btn-outline-primary">
+                                            View Heatmap
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="mt-3 p-3 bg-light rounded">
+                        <h5>Team Summary:</h5>
+                        <p>{{ result.away_summary|replace('\n', '<br>')|safe }}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

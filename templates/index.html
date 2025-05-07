@@ -1,0 +1,74 @@
+python server.py<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Football Match Analysis</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding-top: 2rem;
+            background-color: #f8f9fa;
+        }
+        .container {
+            max-width: 960px;
+        }
+        .header {
+            border-bottom: 1px solid #e5e5e5;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+        }
+        .file-list {
+            margin-top: 2rem;
+        }
+        .upload-form {
+            background-color: #fff;
+            border-radius: 5px;
+            padding: 1.5rem;
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            margin-bottom: 2rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 class="text-center">Football Match Analysis Tool</h1>
+            <p class="text-center text-muted">Upload and analyze StatsBomb format JSON files</p>
+        </div>
+        
+        <div class="upload-form">
+            <h2>Upload Match Data</h2>
+            <form method="post" action="/upload" enctype="multipart/form-data" class="mb-4">
+                <div class="mb-3">
+                    <label for="file" class="form-label">Select JSON file:</label>
+                    <input type="file" name="file" id="file" class="form-control" accept=".json">
+                </div>
+                <button type="submit" class="btn btn-primary">Upload JSON</button>
+            </form>
+        </div>
+        
+        <div class="file-list">
+            <h2>Available Match Files</h2>
+            {% if files %}
+                <div class="list-group">
+                {% for file in files %}
+                    <div class="list-group-item list-group-item-action">
+                        <div class="d-flex w-100 justify-content-between align-items-center">
+                            <h5 class="mb-1">{{ file }}</h5>
+                            <div>
+                                <a href="/analyze?filename={{ file }}" class="btn btn-success btn-sm">Analyze Match</a>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+                </div>
+            {% else %}
+                <div class="alert alert-info">No match files available. Please upload a JSON file.</div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

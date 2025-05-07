@@ -13,6 +13,9 @@ import os
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, FloatType, ArrayType, MapType
+import json
+import pandas as pd
+import matplotlib
 
 class FootballMatchAnalyzer:
     def __init__(self):
@@ -46,9 +49,9 @@ class FootballMatchAnalyzer:
         }
         
     def load_data(self, file_path: str) -> Dict:
-        """Load StatsBomb JSON data, optionally using Spark for large files."""
+        """Load StatsBomb JSON data, And using Spark for large files."""
         try:
-            # Check file size to determine whether to use Spark
+            # Check file size to determine whether to use Spark Or Pandas.
             file_size = os.path.getsize(file_path)
             use_spark = file_size > 10 * 1024 * 1024  # Use Spark for files larger than 10MB
             
@@ -57,7 +60,7 @@ class FootballMatchAnalyzer:
                 events_schema = self._get_statsbomb_schema()
                 
                 # Read JSON with Spark
-                df = self.spark.read.json(file_path, multiLine=True)
+                df = self.spark.read.json(file_path)
                 
                 # Convert to Python objects for compatibility with existing code
                 events = df.rdd.collect()
@@ -136,7 +139,7 @@ class FootballMatchAnalyzer:
             # Find unique teams
             teams = set()
             for event in events:
-                if 'team' in event and 'name' in event['team']:
+                if 'team' in event and 'name' in event['team'] is not None:
                     teams.add(event['team']['name'])
             
             team_names = list(teams)
@@ -151,7 +154,7 @@ class FootballMatchAnalyzer:
             
             for event in events:
                 if event.get('type', {}).get('name') == "Starting XI" and 'tactics' in event:
-                    team_name = event.get('team', {}).get('name')
+                    team_name = event.get('team', {}).get('name') if event.get('team', {}).get('name') is not None else None
                     if team_name == home_team and 'formation' in event['tactics']:
                         home_formation = str(event['tactics']['formation'])
                     elif team_name == away_team and 'formation' in event['tactics']:
@@ -205,8 +208,10 @@ class FootballMatchAnalyzer:
             
             # Get pass statistics
             pass_stats = {row["team_name"]: {"passes": row["passes"], "completed": row["completed_passes"]} 
-                         for row in passes_df.collect()}
-            
+                         for row in passes_df.collect()}  
+            #To return the teams passes as a one dictionary
+            # Like this {home_team: {"passes": 0, "completed": 0}, away_team: {"passes": 0, "completed": 0}}
+
             home_passes = pass_stats.get(home_team, {"passes": 0, "completed": 0})["passes"]
             away_passes = pass_stats.get(away_team, {"passes": 0, "completed": 0})["passes"]
             home_completed_passes = pass_stats.get(home_team, {"passes": 0, "completed": 0})["completed"]

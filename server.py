@@ -1,140 +1,121 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, render_template, redirect, url_for
 import os
-import webbrowser
-from threading import Timer
-from flask_cors import CORS
 from football_analysis import FootballMatchAnalyzer
-from werkzeug.utils import secure_filename
-import glob
-import logging
-import json
-import time
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, 
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
-app = Flask(__name__, static_url_path='', static_folder='.')
-CORS(app)  # Enable CORS for all routes
-
-# Create uploads directory if it doesn't exist
 UPLOAD_FOLDER = 'uploads'
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
+ALLOWED_EXTENSIONS = {'json'}
 
-# Initialize analyzer once to avoid recreating it for each request
+app = Flask(__name__)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max upload size
+
+# Create a static folder structure if it doesn't exist
+os.makedirs('static', exist_ok=True)
+
+# Initialize analyzer
 analyzer = FootballMatchAnalyzer()
 
-@app.route('/', methods=['GET'])
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@app.route('/')
 def index():
-    return send_from_directory('.', 'index.html')
-
-@app.route('/<path:path>', methods=['GET'])
-def serve_static(path):
-    return send_from_directory('.', path)
-
-@app.route('/list-files', methods=['GET'])
-def list_files():
-    # Get JSON files from root directory
-    root_files = glob.glob('*.json')
-    
-    # Get JSON files from uploads directory
-    upload_files = [os.path.join(UPLOAD_FOLDER, f) for f in os.listdir(UPLOAD_FOLDER) if f.endswith('.json')]
-    
-    # Combine the lists
-    all_files = root_files + upload_files
-    
-    return jsonify({
-        "files": all_files
-    })
+    # Get list of available JSON files
+    files = [f for f in os.listdir(app.config['UPLOAD_FOLDER']) if f.endswith('.json')]
+    return render_template('index.html', files=files)
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    # Check if the post request has the file part
     if 'file' not in request.files:
-        return jsonify({"error": "No file part"}), 400
-    
+        return 'No file part', 400
     file = request.files['file']
-    
-    # If user does not select file, browser also submits an empty file
     if file.filename == '':
-        return jsonify({"error": "No selected file"}), 400
-    
-    if file:
-        # Secure the filename to prevent security issues
-        filename = secure_filename(file.filename)
-        
-        # Save the file to the upload folder
-        file_path = os.path.join(UPLOAD_FOLDER, filename)
-        file.save(file_path)
-        
-        logger.info(f"File uploaded successfully: {file_path}")
-        return jsonify({
-            "message": "File successfully uploaded",
-            "file_path": file_path
-        })
-
-@app.route('/get-player-image', methods=['GET'])
-def get_player_image():
-    """Return a placeholder response for player image"""
-    player_name = request.args.get('name')
-    
-    if not player_name:
-        return jsonify({"error": "Player name is required"}), 400
-    
-    # Return a simple response instead of an image
-    return jsonify({"message": "Player image functionality has been removed"})
-
-@app.route('/get-team-logo', methods=['GET'])
-def get_team_logo():
-    """Return a placeholder response for team logo"""
-    team_name = request.args.get('name')
-    
-    if not team_name:
-        return jsonify({"error": "Team name is required"}), 400
-    
-    # Return a simple response instead of a logo
-    return jsonify({"message": "Team logo functionality has been removed"})
+        return 'No selected file', 400
+    if file and allowed_file(file.filename):
+        filename = file.filename
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(filepath)
+        return redirect(url_for('index'))
+    return 'Invalid file type', 400
 
 @app.route('/analyze', methods=['GET'])
-def analyze_match():
-    # Get file path from query parameter
-    file_path = request.args.get('file')
+def analyze():
+    filename = request.args.get('filename')
+    player_name = request.args.get('player_name')
     
-    # Get player name if provided
-    player_name = request.args.get('player')
+    if not filename:
+        return 'Filename required', 400
     
-    if not file_path:
-        return jsonify({"error": "No file specified"}), 400
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    if not os.path.exists(filepath):
+        return 'File not found', 404
     
-    # Check if file exists
-    if not os.path.exists(file_path):
-        return jsonify({"error": f"File {file_path} not found"}), 404
+    # Run analysis
+    result = analyzer.analyze_match(filepath, player_name)
+    if 'error' in result:
+        return result['error'], 500
     
-    try:
-        logger.info(f"Analyzing match file: {file_path} {' for player: ' + player_name if player_name else ''}")
-        
-        # Analyze the match
-        results = analyzer.analyze_match(file_path, player_name)
-        
-        logger.info(f"Analysis complete for: {file_path}")
-        return jsonify(results)
-    except Exception as e:
-        logger.error(f"Error analyzing match: {str(e)}", exc_info=True)
-        return jsonify({"error": str(e)}), 500
+    # Return HTML visualization
+    return render_template('analysis.html', 
+                          result=result, 
+                          filename=filename,
+                          match_details=result['match_details'],
+                          match_stats=result['match_stats'],
+                          home_players=result['home_player_stats'],
+                          away_players=result['away_player_stats'],
+                          player_name=player_name)
 
-def _sanitize_filename(filename):
-    """Sanitize a filename to be safe for filesystem use"""
-    # Replace non-alphanumeric characters with underscores
-    return ''.join(c if c.isalnum() else '_' for c in filename)
+@app.route('/player_analysis', methods=['GET'])
+def player_analysis():
+    filename = request.args.get('filename')
+    player_name = request.args.get('player_name')
+    
+    if not filename or not player_name:
+        return 'Filename and player name required', 400
+    
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    if not os.path.exists(filepath):
+        return 'File not found', 404
+    
+    # Run analysis with player focus
+    result = analyzer.analyze_match(filepath, player_name)
+    if 'error' in result:
+        return result['error'], 500
+    
+    # Return HTML visualization focusing on the player
+    return render_template('player_analysis.html', 
+                          result=result, 
+                          filename=filename,
+                          player_name=player_name)
 
-def open_browser():
-    webbrowser.open('http://localhost:5000/')
+@app.route('/api/analyze', methods=['GET'])
+def api_analyze():
+    """JSON API endpoint for programmatic access"""
+    filename = request.args.get('filename')
+    player_name = request.args.get('player_name')
+    
+    if not filename:
+        return jsonify({'error': 'Filename required'}), 400
+    
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'File not found'}), 404
+    
+    # Run analysis
+    result = analyzer.analyze_match(filepath, player_name)
+    if 'error' in result:
+        return jsonify({'error': result['error']}), 500
+    
+    return jsonify(result)
+
+@app.route('/list_files', methods=['GET'])
+def list_files():
+    """API endpoint to list available JSON files"""
+    files = [f for f in os.listdir(app.config['UPLOAD_FOLDER']) if f.endswith('.json')]
+    return jsonify(files)
 
 if __name__ == '__main__':
-    # Open browser after a short delay to ensure server is running
-    Timer(1.0, open_browser).start()
+    # Make sure templates directory exists
+    os.makedirs('templates', exist_ok=True)
     
-    # Run with threaded=False to avoid thread-related issues with matplotlib
-    app.run(debug=True, host='0.0.0.0', port=5000, threaded=False)
+    app.run(debug=True)
